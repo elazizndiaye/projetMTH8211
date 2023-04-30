@@ -95,7 +95,12 @@ function bunch_parlett(A::AbstractMatrix)
             _swap!(Ak, perm[2][1], perm[2][2])
             _swapL!(L,k-1+perm[1][1],k-1+perm[1][2])
             _swapL!(L,k-1+perm[2][1],k-1+perm[2][2])
-            invE = inv(pivot) # TODO: use exact formula
+            a = pivot[1,1]
+            b = pivot[1,2]
+            c = pivot[2,1]
+            d = pivot[2,2]
+            invDet = 1/(a*d-b*c)
+            invE = invDet*[[d,-b] [-c,a]]
             C = Ak[3:end,1:2]
             B = Ak[3:end,3:end]
             Ak = B-C*invE*C'
@@ -174,7 +179,12 @@ function bunch_kaufmann(A::AbstractMatrix)
             perms[k-1+perm[1][2]] = temp
             _swap!(Ak, perm[1][1], perm[1][2])
             _swapL!(L,k-1+perm[1][1],k-1+perm[1][2])
-            invE = inv(pivot)
+            a = pivot[1,1]
+            b = pivot[1,2]
+            c = pivot[2,1]
+            d = pivot[2,2]
+            invDet = 1/(a*d-b*c)
+            invE = invDet*[[d,-b] [-c,a]]
             C = Ak[3:end,1:2]
             B = Ak[3:end,3:end]
             Ak = B-C*invE*C'
@@ -188,7 +198,11 @@ function bunch_kaufmann(A::AbstractMatrix)
             k = k + 1
         end
     end
-    return L, D, perms, block_loc
+    return L, D, perms, block_loc;
+end
+
+function solve_bk(A::BunchKaufmann, b::AbstractVector)
+    return solve(A.L,A.D,A.perms,A.block_loc,b)
 end
 
 """
@@ -273,7 +287,12 @@ function bounded_bunch_kaufmann(A::AbstractMatrix)
             _swap!(Ak, perm[2][1], perm[2][2])
             _swapL!(L,k-1+perm[1][1],k-1+perm[1][2])
             _swapL!(L,k-1+perm[2][1],k-1+perm[2][2])
-            invE = inv(pivot)
+            a = pivot[1,1]
+            b = pivot[1,2]
+            c = pivot[2,1]
+            d = pivot[2,2]
+            invDet = 1/(a*d-b*c)
+            invE = invDet*[[d,-b] [-c,a]]
             C = Ak[3:end,1:2]
             B = Ak[3:end,3:end]
             Ak = B-C*invE*C'
@@ -340,3 +359,90 @@ function aasen(Ain::AbstractMatrix)
     return L,T,perms
 end
 
+"""
+Solve the systems associated with the factorizatons of:
+    - Bunch-Parlett
+    - Bunch-Kaufmann
+    - bounded_bunch_kaufmann
+The function return the solution of the system.
+"""
+function solve(L::AbstractMatrix, D::AbstractMatrix, perms::AbstractVector, block_loc::AbstractVector, b::AbstractVector)
+    # P'AP = LDL'
+    n, _ = size(L)
+    # Computing P'b 
+    Pb = zeros(n)
+    Pb[perms] .= b
+    # Solving Lw = Pb
+    w = zeros(n)
+    for i in 1:n
+        w[i] = Pb[i] - sum(L[i,1:i-1].*w[1:i-1])
+    end
+    # Solving Dy = w
+    y = zeros(n)
+    i = 1
+    while i<n+1
+        block = block_loc[i]
+        if block==1
+            y[i] = w[i]/D[i,i]
+            i = i + 1
+        else
+            a = D[i,i]
+            b = D[i,i+1]
+            c = D[i+1,i]
+            d = D[i+1,i+1]
+            invDet = 1/(a*d-b*c)
+            y[i] = invDet*(d*w[i]-b*w[i+1])
+            y[i+1] = invDet*(-c*w[i]+a*w[i+1])
+            i = i + 2
+        end
+    end
+    # Solving L'z = y
+    z = zeros(n)
+    for i in n:-1:1
+        z[i] = y[i] - sum(L[i+1:n,i].*z[i+1:n])
+    end
+    # computing x = Pz
+    x = zeros(n)
+    x = z[perms]
+    return x
+end
+
+
+"""
+Solve the systems associated with the Aasen factorization.
+The function return the solution of the linear system.
+"""
+function solve(L::AbstractMatrix, T::AbstractMatrix, perms::AbstractVector, b::AbstractVector)
+    # P'AP = LTL'
+    n, _ = size(L)
+    # Computing P'b 
+    Pb = zeros(n)
+    Pb[perms] .= b
+    # Solving Lw = Pb
+    w = zeros(n)
+    for i in 1:n
+        w[i] = Pb[i] - sum(L[i,1:i-1].*w[1:i-1])
+    end
+    # Solving Ty = w
+    y = zeros(n)
+    ## 1st sweep
+    for i in 1:n-1
+        r1 = T.dl[i]/T.d[i]
+        T.d[i+1] -= r1*T.du[i]
+        w[i+1] -= r1*w[i]
+    end
+    ## 2nd Sweep
+    y[n] = w[n]/T.d[n]
+    for i in n-1:-1:1
+        y[i] = (w[i]-T.du[i]*y[i+1])/T.d[i]
+    end
+    # Solving L'z = y
+    z = zeros(n)
+    for i in n:-1:1
+        z[i] = y[i] - sum(L[i+1:n,i].*z[i+1:n])
+    end
+    # computing x = Pz
+    x = zeros(n)
+    x = z[perms]
+    return x
+end
