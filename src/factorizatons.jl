@@ -201,10 +201,6 @@ function bunch_kaufmann(A::AbstractMatrix)
     return L, D, perms, block_loc;
 end
 
-function solve_bk(A::BunchKaufmann, b::AbstractVector)
-    return solve(A.L,A.D,A.perms,A.block_loc,b)
-end
-
 """
 Find the pivot for Bounded_Bunch-Kaufmann
 """
